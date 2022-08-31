@@ -139,10 +139,10 @@ private:
             mdns_string_t namestr =
                 mdns_record_parse_ptr(data, size, record_offset, record_length, namebuffer, sizeof(namebuffer));
 
-            logger_callback(string("PTR :")
+            logger_callback(string("query_callback PTR :")
                                 .append(fromEntry)
                                 .append(" name=")
-                                .append(namestr.str)
+                                .append(namestr.str, namestr.length)
                                 .append(" rclass=")
                                 .append(to_string(rclass))
                                 .append(" ttl=")
@@ -153,10 +153,10 @@ private:
         else if (rtype == MDNS_RECORDTYPE_SRV) {
             mdns_record_srv_t srv =
                 mdns_record_parse_srv(data, size, record_offset, record_length, namebuffer, sizeof(namebuffer));
-            logger_callback(string("SRV :")
+            logger_callback(string("query_callback SRV :")
                                 .append(fromEntry)
                                 .append(" name=")
-                                .append(srv.name.str)
+                                .append(srv.name.str, srv.name.length)
                                 .append(" priority=")
                                 .append(to_string(srv.priority))
                                 .append(" weight=")
@@ -168,34 +168,37 @@ private:
             struct sockaddr_in addr;
             mdns_record_parse_a(data, size, record_offset, record_length, &addr);
             auto addrstr = ipv4_address_to_string(&addr);
-            logger_callback(string("A :").append(fromEntry).append(" address:").append(addrstr));
+            logger_callback(string("query_callback A :").append(fromEntry).append(" address:").append(addrstr));
         }
         else if (rtype == MDNS_RECORDTYPE_AAAA) {
             struct sockaddr_in6 addr;
             mdns_record_parse_aaaa(data, size, record_offset, record_length, &addr);
             auto addrstr = ipv6_address_to_string(&addr);
-            logger_callback(string("AAAA :").append(fromEntry).append(" address:").append(addrstr));
+            logger_callback(string("query_callback AAAA :").append(fromEntry).append(" address:").append(addrstr));
         }
         else if (rtype == MDNS_RECORDTYPE_TXT) {
             size_t parsed = mdns_record_parse_txt(data, size, record_offset, record_length, txtbuffer,
                                                   sizeof(txtbuffer) / sizeof(mdns_record_txt_t));
             for (size_t itxt = 0; itxt < parsed; ++itxt) {
                 if (txtbuffer[itxt].value.length) {
-                    logger_callback(string("TXT")
+                    logger_callback(string("query_callback TXT")
                                         .append(fromEntry)
                                         .append(" key=")
-                                        .append(txtbuffer[itxt].key.str)
+                                        .append(txtbuffer[itxt].key.str, txtbuffer[itxt].key.length)
                                         .append(" value=")
-                                        .append(txtbuffer[itxt].value.str));
+                                        .append(txtbuffer[itxt].value.str, txtbuffer[itxt].value.length));
                 }
                 else {
-                    logger_callback(string("TXT").append(fromEntry).append(" key=").append(txtbuffer[itxt].key.str));
+                    logger_callback(string("query_callback TXT")
+                                        .append(fromEntry)
+                                        .append(" key=")
+                                        .append(txtbuffer[itxt].key.str, txtbuffer[itxt].key.length));
                 }
             }
         }
         else {
             logger_callback(string(to_string(rtype))
-                                .append(" OTHER :")
+                                .append("query_callback OTHER :")
                                 .append(fromEntry)
                                 .append(" rclass=")
                                 .append(to_string(rclass))
@@ -226,7 +229,10 @@ private:
 
         auto record_type = static_cast<mdns_record_type>(rtype);
         auto record_type_name = recordtype_to_string(record_type);
-        logger_callback(string("Query type=").append(record_type_name).append(" name=").append(name.str, name.length));
+        logger_callback(string("service_callback Query type=")
+                            .append(record_type_name)
+                            .append(" name=")
+                            .append(name.str, name.length));
 
         if (record_type_name.empty())
             return 0;
