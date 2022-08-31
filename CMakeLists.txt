@@ -12,11 +12,11 @@ option(MDNSSERVICE_BUILD_EXAMPLE "Build example" ON)
 
 #add_subdirectory(${CMAKE_SOURCE_DIR}/include/mdns)
 #target_include_directories(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/include/mdns)
-add_library(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/mdnsService.cpp)
+#add_library(${PROJECT_NAME})
 
 if(MDNSSERVICE_BUILD_EXAMPLE)
   add_executable(${PROJECT_NAME}_example example.cpp)
-  target_link_libraries(${PROJECT_NAME}_example ${PROJECT_NAME})
+  target_include_directories(${PROJECT_NAME}_example INTERFACE ${CMAKE_SOURCE_DIR})
 endif()
 
 

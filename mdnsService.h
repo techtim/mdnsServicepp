@@ -18,6 +18,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <vector>
 
 #include "utils.h"
 #include "include/mdns/mdns.h"
@@ -70,7 +71,7 @@ public:
     void sendMdnsQuery(const string &serviceName)
     {
         mdns_query_t query{MDNS_RECORDTYPE_ANY, serviceName.c_str(), serviceName.length()};
-        send_mdns_query({std::move(query)});
+        send_mdns_query(std::vector<mdns_query_t>{std::move(query)});
     }
 
     void sendMdnsQuery(std::vector<mdns_query_t> queries)
@@ -991,6 +992,14 @@ private:
     {
         using namespace std::placeholders;
 
+#ifdef __APPLE__
+            constexpr __ph<11> _11;
+            constexpr __ph<12> _12;
+            constexpr __ph<13> _13;
+            constexpr __ph<14> _14;
+            constexpr __ph<15> _15;
+#endif
+
         CallbackQuery<int(int, const sockaddr *, size_t, mdns_entry_type_t, uint16_t, uint16_t, uint16_t, uint32_t,
                           const void *, size_t, size_t, size_t, size_t, size_t, void *)>::func =
             std::bind(&MdnsService::query_callback, this, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14,
@@ -1003,6 +1012,7 @@ private:
                             const void *, size_t, size_t, size_t, size_t, size_t, void *)>::func =
             std::bind(&MdnsService::service_callback, this, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14,
                       _15);
+
         mdnsServiceCallback = static_cast<mdns_record_callback_fn>(
             CallbackService<int(int, const sockaddr *, size_t, mdns_entry_type_t, uint16_t, uint16_t, uint16_t,
                                 uint32_t, const void *, size_t, size_t, size_t, size_t, size_t, void *)>::callback);
