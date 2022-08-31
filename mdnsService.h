@@ -17,6 +17,7 @@
 #include <memory>
 #include <atomic>
 #include <thread>
+#include <mutex>
 
 #include "utils.h"
 #include "include/mdns/mdns.h"
@@ -26,7 +27,9 @@ namespace mdns {
 using std::string;
 using std::to_string;
 
-static const string dns_sd = "_services._dns-sd._udp.local.";
+static constexpr size_t s_maxSocketsNum = 32;
+static const string s_dnsSd = "_services._dns-sd._udp.local.";
+static const mdns_string_t s_dns_sd{s_dnsSd.c_str(), s_dnsSd.length()};
 
 struct service_t {
     mdns_string_t service;
@@ -51,10 +54,9 @@ struct open_sockets_res {
 
 class MdnsService {
 public:
-    MdnsService(const string &serviceName, const string &hostname,
-                std::function<void(const std::string &)> logCallback = nullptr)
+    MdnsService(std::function<void(const std::string &)> logCallback = nullptr)
     {
-        generateMdnsRecordCallback();
+        generateMdnsRecordCallbacks();
 
         if (logCallback != nullptr)
             logger_callback = std::move(logCallback);
@@ -65,7 +67,18 @@ public:
         send_dns_sd();
     }
 
-    void startService(const string &serviceName, const string &hostname)
+    void sendMdnsQuery(const string &serviceName)
+    {
+        mdns_query_t query{MDNS_RECORDTYPE_ANY, serviceName.c_str(), serviceName.length()};
+        send_mdns_query({std::move(query)});
+    }
+
+    void sendMdnsQuery(std::vector<mdns_query_t> queries)
+    {
+        send_mdns_query(std::move(queries));
+    }
+
+    void start(const string &serviceName, const string &hostname)
     {
         m_serviceName = serviceName;
         m_hostname = hostname;
@@ -73,7 +86,7 @@ public:
         serviceThread = std::thread([this]() { this->service_mdns(m_hostname, m_serviceName); });
     }
 
-    void stopService()
+    void stop()
     {
         m_isRunning = false;
         if (serviceThread.joinable()) {
@@ -83,7 +96,7 @@ public:
 
     ~MdnsService()
     {
-        stopService();
+        stop();
     }
     MdnsService(MdnsService &&) = delete;
     MdnsService(const MdnsService &) = delete;
@@ -95,6 +108,8 @@ private:
     mdns_record_txt_t txtbuffer[128];
 
     std::function<void(const std::string &)> logger_callback = [](const std::string &str) {
+        static std::mutex logLock;
+        std::lock_guard<std::mutex> lock(logLock);
         std::cout << str << std::endl;
     };
 
@@ -103,7 +118,7 @@ private:
     std::atomic<bool> m_isRunning;
     mdns_record_callback_fn mdnsQueryCallback, mdnsServiceCallback;
 
-    /// Port of mdns.cpp
+    /// Port of mdns.cpp logic
     int query_callback(int sock, const sockaddr *from, size_t addrlen, mdns_entry_type_t entry, uint16_t query_id,
                        uint16_t rtype, uint16_t rclass, uint32_t ttl, const void *data, size_t size, size_t name_offset,
                        size_t name_length, size_t record_offset, size_t record_length, void *user_data)
@@ -116,7 +131,8 @@ private:
         string fromAddrstr = ip_address_to_string(from);
         string entrytype = entrytype_to_string(entry);
         mdns_string_t entrystr = mdns_string_extract(data, size, &name_offset, entrybuffer, sizeof(entrybuffer));
-        string fromEntry = fromAddrstr.append(" : type=").append(entrytype).append(" entry=").append(entrystr.str);
+        string fromEntry =
+            fromAddrstr.append(" : type=").append(entrytype).append(" entry=").append(entrystr.str, entrystr.length);
 
         if (rtype == MDNS_RECORDTYPE_PTR) {
             mdns_string_t namestr =
@@ -208,15 +224,15 @@ private:
         mdns_string_t name = mdns_string_extract(data, size, &offset, namebuffer, sizeof(namebuffer));
 
         auto record_type = static_cast<mdns_record_type>(rtype);
-        auto record_name = recordtype_to_string(record_type);
-        if (record_name.empty())
+        auto record_type_name = recordtype_to_string(record_type);
+        logger_callback(string("Query type=").append(record_type_name).append(" name=").append(name.str, name.length));
+
+        if (record_type_name.empty())
             return 0;
 
         uint16_t unicast = (rclass & MDNS_UNICAST_RESPONSE);
 
-        logger_callback(string("Query ").append(record_name).append(" ").append(name.str));
-        auto nameStr = string(name.str);
-        if (nameStr == dns_sd) {
+        if (isEqual(name, s_dns_sd)) {
             if ((rtype == MDNS_RECORDTYPE_PTR) || (rtype == MDNS_RECORDTYPE_ANY)) {
                 // The PTR query was for the DNS-SD domain, send answer with a PTR record for the
                 // service name we advertise, typically on the "<_service-name>._tcp.local." format
@@ -226,7 +242,7 @@ private:
                 mdns_record_t answer = {.name = name, .type = MDNS_RECORDTYPE_PTR, .data.ptr.name = service->service};
 
                 logger_callback(string("  --> answer for DNS-SD: ")
-                                    .append(answer.data.ptr.name.str)
+                                    .append(answer.data.ptr.name.str, answer.data.ptr.name.length)
                                     .append(" - ")
                                     .append(unicast ? "unicast" : "multicast"));
 
@@ -271,7 +287,7 @@ private:
                 additional[additional_count++] = service->txt_record[1];
 
                 logger_callback(string("  --> answer for record PTR: ")
-                                    .append(service->record_ptr.data.ptr.name.str)
+                                    .append(answer.data.ptr.name.str, answer.data.ptr.name.length)
                                     .append(" - ")
                                     .append(unicast ? "unicast" : "multicast"));
 
@@ -313,7 +329,7 @@ private:
                 additional[additional_count++] = service->txt_record[1];
 
                 logger_callback(string("  --> answer for record SRV: ")
-                                    .append(service->record_srv.data.ptr.name.str)
+                                    .append(answer.data.ptr.name.str, answer.data.ptr.name.length)
                                     .append(" - ")
                                     .append(unicast ? "unicast" : "multicast"));
 
@@ -350,7 +366,7 @@ private:
 
                 auto addrstr = ip_address_to_string((struct sockaddr *)&service->record_a.data.a.addr);
                 logger_callback(string("  --> answer for qualified hostname: ")
-                                    .append(service->record_a.name.str)
+                                    .append(service->record_a.name.str, service->record_a.name.length)
                                     .append(" IPv4=")
                                     .append(addrstr)
                                     .append(unicast ? " unicast" : " multicast"));
@@ -387,7 +403,7 @@ private:
                 auto addrstr = ip_address_to_string((struct sockaddr *)&service->record_aaaa.data.aaaa.addr);
 
                 logger_callback(string("  --> answer for qualified hostname: ")
-                                    .append(service->record_aaaa.name.str)
+                                    .append(service->record_aaaa.name.str, service->record_aaaa.name.length)
                                     .append(" IPv6=")
                                     .append(addrstr)
                                     .append(unicast ? " unicast" : " multicast"));
@@ -435,7 +451,7 @@ private:
 
         if (!adapter_address || (ret != NO_ERROR)) {
             free(adapter_address);
-            printf("Failed to get network adapter addresses\n");
+            logger_callback("Failed to get network adapter addresses");
             return res;
         }
 
@@ -471,10 +487,8 @@ private:
                             }
                         }
                         if (log_addr) {
-                            char buffer[128];
-                            mdns_string_t addr =
-                                ipv4_address_to_string(buffer, sizeof(buffer), saddr, sizeof(struct sockaddr_in));
-                            printf("Local IPv4 address: %.*s\n", MDNS_STRING_FORMAT(addr));
+                            auto addr = ipv4_address_to_string(saddr);
+                            logger_callback("Local IPv4 address: " + addr);
                         }
                     }
                 }
@@ -507,10 +521,8 @@ private:
                             }
                         }
                         if (log_addr) {
-                            char buffer[128];
-                            mdns_string_t addr =
-                                ipv6_address_to_string(buffer, sizeof(buffer), saddr, sizeof(struct sockaddr_in6));
-                            printf("Local IPv6 address: %.*s\n", MDNS_STRING_FORMAT(addr));
+                            auto addr = ipv6_address_to_string(saddr);
+                            logger_callback("Local IPv6 address: " + addr);
                         }
                     }
                 }
@@ -524,7 +536,7 @@ private:
         struct ifaddrs *ifaddr = nullptr;
 
         if (getifaddrs(&ifaddr) < 0)
-            printf("Unable to get interface addresses\n");
+            logger_callback("Unable to get interface addresses");
 
         int first_ipv4 = 1;
         int first_ipv6 = 1;
@@ -560,7 +572,7 @@ private:
                     if (log_addr) {
                         char buffer[128];
                         auto addr = ipv4_address_to_string(saddr);
-                        logger_callback(string("Local IPv4 address: ").append(addr));
+                        logger_callback(string("Open client socket on local IPv4 address: ").append(addr));
                     }
                 }
             }
@@ -595,7 +607,7 @@ private:
                     if (log_addr) {
                         char buffer[128];
                         auto addr = ipv6_address_to_string(saddr);
-                        logger_callback(string("Local IPv6 address: ").append(addr));
+                        logger_callback(string("Open client socket on IPv6 address: ").append(addr));
                     }
                 }
             }
@@ -658,28 +670,30 @@ private:
     // Send a DNS-SD query
     int send_dns_sd()
     {
-        int sockets[32];
-        auto open_res = open_client_sockets(sockets, sizeof(sockets) / sizeof(sockets[0]), 0);
+        int sockets[s_maxSocketsNum];
+        auto open_res = open_client_sockets(sockets, s_maxSocketsNum, 0);
         if (open_res.num_sockets <= 0) {
-            printf("Failed to open any client sockets\n");
+            logger_callback("Failed to open any client sockets");
             return -1;
         }
-        printf("Opened %d socket%s for DNS-SD\n", open_res.num_sockets, open_res.num_sockets > 1 ? "s" : "");
+        logger_callback(string("Opened for DNS-SD socket(s): ").append(to_string(open_res.num_sockets)));
 
-        printf("Sending DNS-SD discovery\n");
+        logger_callback("Sending DNS-SD discovery");
+
         for (int isock = 0; isock < open_res.num_sockets; ++isock) {
-            if (mdns_discovery_send(sockets[isock]))
-                printf("Failed to send DNS-DS discovery: %s\n", strerror(errno));
+            if (mdns_discovery_send(sockets[isock]) != 0)
+                logger_callback(string("Failed to send DNS-DS discovery:").append(strerror(errno)));
         }
 
         size_t capacity = 2048;
-        std::shared_ptr<void> buffer(malloc(capacity), free);
+        // std::shared_ptr<void> buffer(malloc(capacity), free);
+        void *buffer = malloc(capacity);
         void *user_data = 0;
         size_t records;
 
         // This is a simple implementation that loops for 5 seconds or as long as we get replies
         int res;
-        printf("Reading DNS-SD replies\n");
+        logger_callback("Reading DNS-SD replies");
         do {
             struct timeval timeout;
             timeout.tv_sec = 5;
@@ -699,26 +713,29 @@ private:
             if (res > 0) {
                 for (int isock = 0; isock < open_res.num_sockets; ++isock) {
                     if (FD_ISSET(sockets[isock], &readfs)) {
-                        records += mdns_discovery_recv(sockets[isock], &buffer, capacity, mdnsQueryCallback, user_data);
+                        records += mdns_discovery_recv(sockets[isock], buffer, capacity, mdnsQueryCallback, user_data);
+                        logger_callback(string("Discovery recv from socket: ").append(to_string(sockets[isock])));
                     }
                 }
             }
         } while (res > 0);
 
+        free(buffer);
+
         for (int isock = 0; isock < open_res.num_sockets; ++isock)
             mdns_socket_close(sockets[isock]);
 
-        logger_callback(string("Closed socket(s): ").append(to_string(open_res.num_sockets)));
+        logger_callback(string("Closed for DNS-SD socket(s): ").append(to_string(open_res.num_sockets)));
 
         return 0;
     }
 
     // Send a mDNS query
-    int send_mdns_query(mdns_query_t *query, size_t count)
+    int send_mdns_query(std::vector<mdns_query_t> queries)
     {
-        int sockets[32];
-        int query_id[32];
-        auto open_res = open_client_sockets(sockets, sizeof(sockets) / sizeof(sockets[0]), 0);
+        int sockets[s_maxSocketsNum];
+        int query_id[s_maxSocketsNum];
+        auto open_res = open_client_sockets(sockets, s_maxSocketsNum, 0);
         if (open_res.num_sockets <= 0) {
             logger_callback("Failed to open any client sockets\n");
             return -1;
@@ -726,21 +743,23 @@ private:
         logger_callback(string("Opened for mDNS query socket(s):").append(to_string(open_res.num_sockets)));
 
         size_t capacity = 2048;
-        std::shared_ptr<void> buffer(malloc(capacity), free);
+        //        std::shared_ptr<void> buffer(malloc(capacity), free);
+        void *buffer = malloc(capacity);
         void *user_data = nullptr;
 
         logger_callback("Sending mDNS query");
-        for (size_t iq = 0; iq < count; ++iq) {
-            auto record_name = recordtype_to_string(query[iq].type);
+        for (size_t iq = 0; iq < queries.size(); ++iq) {
+            auto record_name = recordtype_to_string(queries.at(iq).type);
             if (record_name.empty()) {
-                query[iq].type = MDNS_RECORDTYPE_PTR;
+                queries.at(iq).type = MDNS_RECORDTYPE_PTR;
                 record_name = "PTR";
             }
-            logger_callback(string("Query name=").append(query[iq].name).append(" type=").append(record_name));
+            logger_callback(string("Query name=").append(queries.at(iq).name).append(" type=").append(record_name));
         }
 
         for (int isock = 0; isock < open_res.num_sockets; ++isock) {
-            query_id[isock] = mdns_multiquery_send(sockets[isock], query, count, &buffer, capacity, 0);
+            logger_callback(string("Send multiquery for socket: ").append(to_string(sockets[isock])));
+            query_id[isock] = mdns_multiquery_send(sockets[isock], queries.data(), queries.size(), buffer, capacity, 0);
             if (query_id[isock] < 0)
                 logger_callback(string("Failed to send mDNS query: ").append(strerror(errno)));
         }
@@ -767,7 +786,7 @@ private:
             if (res > 0) {
                 for (int isock = 0; isock < open_res.num_sockets; ++isock) {
                     if (FD_ISSET(sockets[isock], &readfs)) {
-                        int rec = mdns_query_recv(sockets[isock], &buffer, capacity, mdnsQueryCallback, user_data,
+                        int rec = mdns_query_recv(sockets[isock], buffer, capacity, mdnsQueryCallback, user_data,
                                                   query_id[isock]);
                         if (rec > 0)
                             records += rec;
@@ -777,12 +796,14 @@ private:
             }
         } while (res > 0);
 
+        free(buffer);
+
         logger_callback(string("Read records: ").append(to_string(records)));
 
         for (int isock = 0; isock < open_res.num_sockets; ++isock) {
             mdns_socket_close(sockets[isock]);
         }
-        logger_callback(string("Closed socket(s): ").append(to_string(open_res.num_sockets)));
+        logger_callback(string("Closed for mDNS query socket(s): ").append(to_string(open_res.num_sockets)));
 
         return 0;
     }
@@ -790,13 +811,18 @@ private:
     // Provide a mDNS service, answering incoming DNS-SD and mDNS queries
     int service_mdns(string hostname, string service_name, int service_port = 5353)
     {
-        int sockets[32];
-        auto open_res = open_service_sockets(sockets, sizeof(sockets) / sizeof(sockets[0]));
+        int sockets[s_maxSocketsNum];
+        auto open_res = open_service_sockets(sockets, s_maxSocketsNum);
         if (open_res.num_sockets <= 0) {
             logger_callback("Failed to open any client sockets");
             return -1;
         }
-        logger_callback(string("Opened for mDNS service socket(s)").append(to_string(open_res.num_sockets)));
+        logger_callback(string("Opened for mDNS service socket(s):")
+                            .append(to_string(open_res.num_sockets))
+                            .append(" IPv4:")
+                            .append(ipv4_address_to_string(&open_res.service_address_ipv4))
+                            .append(" IPv6:")
+                            .append(ipv6_address_to_string(&open_res.service_address_ipv6)));
 
         if (service_name.empty()) {
             printf("Invalid service name\n");
@@ -901,7 +927,7 @@ private:
             additional[additional_count++] = service.txt_record[1];
 
             for (int isock = 0; isock < open_res.num_sockets; ++isock)
-                mdns_announce_multicast(sockets[isock], &buffer, capacity, service.record_ptr, 0, 0, additional,
+                mdns_announce_multicast(sockets[isock], buffer.get(), capacity, service.record_ptr, 0, 0, additional,
                                         additional_count);
         }
 
@@ -920,22 +946,23 @@ private:
             timeout.tv_sec = 0;
             timeout.tv_usec = 100000;
 
-            if (select(nfds, &readfs, 0, 0, &timeout) >= 0) {
+            if (select(nfds, &readfs, nullptr, nullptr, &timeout) >= 0) {
                 for (int isock = 0; isock < open_res.num_sockets; ++isock) {
                     if (FD_ISSET(sockets[isock], &readfs)) {
-                        mdns_socket_listen(sockets[isock], &buffer, capacity, mdnsServiceCallback, &service);
+                        mdns_socket_listen(sockets[isock], buffer.get(), capacity, mdnsServiceCallback, &service);
                     }
                     FD_SET(sockets[isock], &readfs);
                 }
             }
             else {
+                logger_callback("Error on check NFDS descriptors");
                 break;
             }
         }
 
         // Send a goodbye on end of service
         {
-            printf("Sending goodbye\n");
+            logger_callback("Sending goodbye");
             mdns_record_t additional[5] = {0};
             size_t additional_count = 0;
             additional[additional_count++] = service.record_srv;
@@ -947,7 +974,7 @@ private:
             additional[additional_count++] = service.txt_record[1];
 
             for (int isock = 0; isock < open_res.num_sockets; ++isock)
-                mdns_goodbye_multicast(sockets[isock], &buffer, capacity, service.record_ptr, 0, 0, additional,
+                mdns_goodbye_multicast(sockets[isock], buffer.get(), capacity, service.record_ptr, 0, 0, additional,
                                        additional_count);
         }
 
@@ -959,8 +986,8 @@ private:
         return 0;
     }
 
-    /// Callback init
-    void generateMdnsRecordCallback()
+    /// Callbacks init
+    void generateMdnsRecordCallbacks()
     {
         using namespace std::placeholders;
 
