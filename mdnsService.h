@@ -251,14 +251,21 @@ private:
                 logger_callback(string("  --> answer for DNS-SD: ")
                                     .append(answer.data.ptr.name.str, answer.data.ptr.name.length)
                                     .append(" - ")
-                                    .append(unicast ? "unicast" : "multicast"));
+                                    .append(unicast ? "unicast" : "multicast")
+                                    .append(" to ")
+                                    .append(ip_address_to_string(from)));
 
                 if (unicast) {
-                    mdns_query_answer_unicast(sock, from, addrlen, sendbuffer, sizeof(sendbuffer), query_id,
-                                              record_type, name.str, name.length, answer, nullptr, 0, nullptr, 0);
+                    if (mdns_query_answer_unicast(sock, from, addrlen, sendbuffer, sizeof(sendbuffer), query_id,
+                                                  record_type, name.str, name.length, answer, nullptr, 0, nullptr,
+                                                  0) == -1) {
+                        logger_callback("Failed to send unicast");
+                    }
                 }
                 else {
-                    mdns_query_answer_multicast(sock, sendbuffer, sizeof(sendbuffer), answer, nullptr, 0, nullptr, 0);
+                    if (mdns_query_answer_multicast(sock, sendbuffer, sizeof(sendbuffer), answer, nullptr, 0, nullptr,
+                                                    0) == -1)
+                        logger_callback("Failed to send multicast");
                 }
             }
         }
@@ -296,7 +303,9 @@ private:
                 logger_callback(string("  --> answer for record PTR: ")
                                     .append(answer.data.ptr.name.str, answer.data.ptr.name.length)
                                     .append(" - ")
-                                    .append(unicast ? "unicast" : "multicast"));
+                                    .append(unicast ? "unicast" : "multicast")
+                                    .append(" to ")
+                                    .append(ip_address_to_string(from)));
 
                 if (unicast) {
                     mdns_query_answer_unicast(sock, from, addrlen, sendbuffer, sizeof(sendbuffer), query_id,
@@ -338,7 +347,9 @@ private:
                 logger_callback(string("  --> answer for record SRV: ")
                                     .append(answer.data.ptr.name.str, answer.data.ptr.name.length)
                                     .append(" - ")
-                                    .append(unicast ? "unicast" : "multicast"));
+                                    .append(unicast ? "unicast" : "multicast")
+                                    .append(" to ")
+                                    .append(ip_address_to_string(from)));
 
                 if (unicast) {
                     mdns_query_answer_unicast(sock, from, addrlen, sendbuffer, sizeof(sendbuffer), query_id,
@@ -816,7 +827,7 @@ private:
     }
 
     // Provide a mDNS service, answering incoming DNS-SD and mDNS queries
-    int service_mdns(string hostname, string service_name, int service_port = 5353)
+    int service_mdns(string hostname, string service_name, uint16_t service_port = 5353)
     {
         int sockets[s_maxSocketsNum];
         auto open_res = open_service_sockets(sockets, s_maxSocketsNum);
@@ -824,6 +835,7 @@ private:
             logger_callback("Failed to open any client sockets");
             return -1;
         }
+
         logger_callback(string("Opened for mDNS service socket(s):")
                             .append(to_string(open_res.num_sockets))
                             .append(" IPv4:")
