@@ -9,20 +9,31 @@ set(CMAKE_CXX_EXTENSIONS NO)
 set(CMAKE_C_STANDARD 11)
 
 option(MDNSSERVICE_BUILD_EXAMPLE "Build example" ON)
+option(UNDEFINED_SANITIZER "Enable Clang UndefinedBehaviorSanitizer" OFF)
+option(ADDRESS_SANITIZER "Enable Clang AddressSanitizer" OFF)
 
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 find_package(Threads REQUIRED)
 
-#add_subdirectory(${CMAKE_SOURCE_DIR}/include/mdns)
-#target_include_directories(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/include/mdns)
-#add_library(${PROJECT_NAME})
+if (ADDRESS_SANITIZER)
+    message("!! AddressSanitizer enabled for debug build")
+    set(CMAKE_CXX_FLAGS_DEBUG
+            "${CMAKE_CXX_FLAGS_DEBUG} -O1 -fno-omit-frame-pointer -fsanitize=address")
+endif ()
 
-if(MDNSSERVICE_BUILD_EXAMPLE)
-  add_executable(${PROJECT_NAME}_example example.cpp)
-  target_include_directories(${PROJECT_NAME}_example INTERFACE ${CMAKE_SOURCE_DIR})
-  target_link_libraries(${PROJECT_NAME}_example PRIVATE Threads::Threads)
-endif()
+if (UNDEFINED_SANITIZER)
+    message("!! UndefinedBehaviorSanitizer enabled for debug build")
+    set(CMAKE_CXX_FLAGS_DEBUG
+            "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=undefined")
+endif ()
+
+if (MDNSSERVICE_BUILD_EXAMPLE)
+    add_executable(${PROJECT_NAME}_example example.cpp)
+    target_include_directories(${PROJECT_NAME}_example INTERFACE ${CMAKE_SOURCE_DIR})
+    target_link_libraries(${PROJECT_NAME}_example PRIVATE Threads::Threads)
+endif ()
+
 
 

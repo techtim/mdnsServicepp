@@ -11,30 +11,30 @@ namespace mdns {
 using std::string;
 
 static inline string
-ipv4_address_to_string(const struct sockaddr_in *addr)
+ipv4_address_to_string(const sockaddr_in *addr, bool addPort = true)
 {
     string ip{inet_ntoa(addr->sin_addr)};
-    if (addr->sin_port != 0)
+    if (addr->sin_port != 0 && addPort)
         ip.append(":").append(std::to_string(addr->sin_port));
     return ip;
 }
 
 static inline string
-ipv6_address_to_string(const struct sockaddr_in6 *addr)
+ipv6_address_to_string(const sockaddr_in6 *addr, bool addPort = true)
 {
     string ip(INET6_ADDRSTRLEN, ' ');
     inet_ntop(AF_INET6, &(addr->sin6_addr), ip.data(), INET6_ADDRSTRLEN);
-    if (addr->sin6_port != 0)
+    if (addr->sin6_port != 0 && addPort)
         ip.append(":").append(std::to_string(addr->sin6_port));
     return ip;
 }
 
 static inline string
-ip_address_to_string(const struct sockaddr *addr)
+ip_address_to_string(const sockaddr *addr)
 {
     if (addr->sa_family == AF_INET6)
-        return ipv6_address_to_string((const struct sockaddr_in6 *)addr);
-    return ipv4_address_to_string((const struct sockaddr_in *)addr);
+        return ipv6_address_to_string((const sockaddr_in6 *)addr);
+    return ipv4_address_to_string((const sockaddr_in *)addr);
 }
 
 static inline string
