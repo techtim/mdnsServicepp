@@ -17,13 +17,13 @@ set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 find_package(Threads REQUIRED)
 
-if (ADDRESS_SANITIZER)
+if (ADDRESS_SANITIZER AND ${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
     message("!! AddressSanitizer enabled for debug build")
     set(CMAKE_CXX_FLAGS_DEBUG
             "${CMAKE_CXX_FLAGS_DEBUG} -O1 -fno-omit-frame-pointer -fsanitize=address")
 endif ()
 
-if (UNDEFINED_SANITIZER)
+if (UNDEFINED_SANITIZER AND ${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
     message("!! UndefinedBehaviorSanitizer enabled for debug build")
     set(CMAKE_CXX_FLAGS_DEBUG
             "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=undefined")
