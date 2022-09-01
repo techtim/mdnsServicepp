@@ -30,6 +30,7 @@ using std::to_string;
 
 static constexpr size_t s_txtRecordsNum = 2;
 static constexpr size_t s_maxSocketsNum = 32;
+static constexpr size_t s_bufferCapacity = 2048;
 static const string s_dnsSd = "_services._dns-sd._udp.local.";
 static const mdns_string_t s_dns_sd{s_dnsSd.c_str(), s_dnsSd.length()};
 
@@ -655,8 +656,7 @@ private:
                 logger_callback(string("Failed to send DNS-DS discovery:").append(strerror(errno)));
         }
 
-        size_t capacity = 2048;
-        std::shared_ptr<void> buffer(malloc(capacity), free);
+        std::shared_ptr<void> buffer(malloc(s_bufferCapacity), free);
         mdns_record_t userDataEntry;
         void *user_data = &userDataEntry;
         size_t records;
@@ -683,8 +683,8 @@ private:
             if (res > 0) {
                 for (int isock = 0; isock < open_res.num_sockets; ++isock) {
                     if (FD_ISSET(sockets[isock], &readfs)) {
-                        records += mdns_discovery_recv(sockets[isock], buffer.get(), capacity, m_mdns_query_callback,
-                                                       user_data);
+                        records += mdns_discovery_recv(sockets[isock], buffer.get(), s_bufferCapacity,
+                                                       m_mdns_query_callback, user_data);
                         logger_callback(string("Discovery recv from socket: ").append(to_string(sockets[isock])));
                     }
                 }
@@ -711,8 +711,7 @@ private:
         }
         logger_callback(string("Opened for mDNS query socket(s):").append(to_string(open_res.num_sockets)));
 
-        size_t capacity = 2048;
-        std::shared_ptr<void> buffer(malloc(capacity), free);
+        std::shared_ptr<void> buffer(malloc(s_bufferCapacity), free);
         std::unordered_map<string, DeviceInfo> discoveredDevice;
         mdns_record_t userDataEntry;
         void *user_data = &userDataEntry;
@@ -730,7 +729,7 @@ private:
         for (int isock = 0; isock < open_res.num_sockets; ++isock) {
             logger_callback(string("Send multiquery for socket: ").append(to_string(sockets[isock])));
             query_id[isock] =
-                mdns_multiquery_send(sockets[isock], queries.data(), queries.size(), buffer.get(), capacity, 0);
+                mdns_multiquery_send(sockets[isock], queries.data(), queries.size(), buffer.get(), s_bufferCapacity, 0);
             if (query_id[isock] < 0)
                 logger_callback(string("Failed to send mDNS query: ").append(strerror(errno)));
         }
@@ -757,7 +756,8 @@ private:
             if (res > 0) {
                 for (int isock = 0; isock < open_res.num_sockets; ++isock) {
                     if (FD_ISSET(sockets[isock], &readfs)) {
-                        int rec = mdns_query_recv(sockets[isock], buffer.get(), capacity, m_mdns_query_callback,
+                        logger_callback("send mdns_query_recv");
+                        int rec = mdns_query_recv(sockets[isock], buffer.get(), s_bufferCapacity, m_mdns_query_callback,
                                                   user_data, query_id[isock]);
                         if (rec > 0) {
                             logger_callback("mdns_query_recv: " + recordtype_to_string(userDataEntry.type));
@@ -798,7 +798,7 @@ private:
                             .append(ipv6_address_to_string(&open_res.service_address_ipv6)));
 
         if (service_name.empty()) {
-            printf("Invalid service name\n");
+            logger_callback("Invalid service name");
             return -1;
         }
 
@@ -808,31 +808,14 @@ private:
         logger_callback(string("Service mDNS: ").append(service_name).append(":").append(to_string(service_port)));
         logger_callback("Hostname: " + hostname);
 
-        size_t capacity = 2048;
-        std::shared_ptr<void> buffer(malloc(capacity), free);
-
-        mdns_string_t service_string = (mdns_string_t){service_name.c_str(), service_name.length()};
-        mdns_string_t hostname_string = (mdns_string_t){hostname.c_str(), hostname.length()};
-
-        // Build the service instance "<hostname>.<_service-name>._tcp.local." string
-        char service_instance_buffer[256] = {0};
-        snprintf(service_instance_buffer, sizeof(service_instance_buffer) - 1, "%.*s.%.*s",
-                 MDNS_STRING_FORMAT(hostname_string), MDNS_STRING_FORMAT(service_string));
-        mdns_string_t service_instance_string =
-            (mdns_string_t){service_instance_buffer, strlen(service_instance_buffer)};
-
-        // Build the "<hostname>.local." string
-        char qualified_hostname_buffer[256] = {0};
-        snprintf(qualified_hostname_buffer, sizeof(qualified_hostname_buffer) - 1, "%.*s.local.",
-                 MDNS_STRING_FORMAT(hostname_string));
-        mdns_string_t hostname_qualified_string =
-            (mdns_string_t){qualified_hostname_buffer, strlen(qualified_hostname_buffer)};
+        auto service_instance = string(hostname).append(".").append(service_name);
+        auto hostname_qualified = string(hostname).append(".local.");
 
         service_t service;
-        service.service = service_string;
-        service.hostname = hostname_string;
-        service.service_instance = service_instance_string;
-        service.hostname_qualified = hostname_qualified_string;
+        service.service = (mdns_string_t){service_name.c_str(), service_name.length()};
+        service.hostname = (mdns_string_t){hostname.c_str(), hostname.length()};
+        service.service_instance = (mdns_string_t){service_instance.c_str(), service_instance.length()};
+        service.hostname_qualified = (mdns_string_t){hostname_qualified.c_str(), hostname_qualified.length()};
         service.address_ipv4 = open_res.service_address_ipv4;
         service.address_ipv6 = open_res.service_address_ipv6;
         service.port = service_port;
@@ -865,7 +848,7 @@ private:
         service.record_aaaa.rclass = 0;
         service.record_aaaa.ttl = 0;
 
-        // Add two test TXT records for our service instance name, will be coalesced into
+        // Add test TXT records for our service instance name, will be coalesced into
         // one record with both key-value pair strings by the library
         for (size_t irec = 0; irec < s_txtRecordsNum; ++irec) {
             service.txt_record[irec].name = service.service_instance;
@@ -878,12 +861,14 @@ private:
             service.txt_record[irec].ttl = 0;
         }
 
+        std::shared_ptr<void> buffer(malloc(s_bufferCapacity), free);
+
         // Send an announcement on startup of service
         {
             logger_callback("Sending announce");
             std::vector<mdns_record_t> additional = generateAdditionalRecords(service);
             for (int isock = 0; isock < open_res.num_sockets; ++isock)
-                mdns_announce_multicast(sockets[isock], buffer.get(), capacity, service.record_ptr, nullptr, 0,
+                mdns_announce_multicast(sockets[isock], buffer.get(), s_bufferCapacity, service.record_ptr, nullptr, 0,
                                         additional.data(), additional.size());
         }
 
@@ -905,7 +890,8 @@ private:
             if (select(nfds, &readfs, nullptr, nullptr, &timeout) >= 0) {
                 for (int isock = 0; isock < open_res.num_sockets; ++isock) {
                     if (FD_ISSET(sockets[isock], &readfs)) {
-                        mdns_socket_listen(sockets[isock], buffer.get(), capacity, m_mdns_service_callback, &service);
+                        mdns_socket_listen(sockets[isock], buffer.get(), s_bufferCapacity, m_mdns_service_callback,
+                                           &service);
                     }
                     FD_SET(sockets[isock], &readfs);
                 }
@@ -922,7 +908,7 @@ private:
             std::vector<mdns_record_t> additional = generateAdditionalRecords(service);
 
             for (int isock = 0; isock < open_res.num_sockets; ++isock)
-                mdns_goodbye_multicast(sockets[isock], buffer.get(), capacity, service.record_ptr, 0, 0,
+                mdns_goodbye_multicast(sockets[isock], buffer.get(), s_bufferCapacity, service.record_ptr, 0, 0,
                                        additional.data(), additional.size());
         }
 
