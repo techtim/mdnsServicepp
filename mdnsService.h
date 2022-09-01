@@ -53,7 +53,7 @@ struct ServiceState {
     mdns_record_t txt_record[s_txtRecordsNum];
 };
 
-struct QueryRes {
+struct QueryResult {
     string hostname;
     string service;
     sockaddr_in ipv4;
@@ -82,13 +82,13 @@ public:
         send_dns_sd();
     }
 
-    std::vector<QueryRes> sendMdnsQuery(const string &serviceName, mdns_record_type type = MDNS_RECORDTYPE_ANY)
+    std::vector<QueryResult> sendMdnsQuery(const string &serviceName, mdns_record_type type = MDNS_RECORDTYPE_ANY)
     {
         mdns_query_t query{type, serviceName.c_str(), serviceName.length()};
         return send_mdns_query(std::vector<mdns_query_t>{std::move(query)});
     }
 
-    std::vector<QueryRes> sendMdnsQuery(std::vector<mdns_query_t> queries)
+    std::vector<QueryResult> sendMdnsQuery(std::vector<mdns_query_t> queries)
     {
         return send_mdns_query(std::move(queries));
     }
@@ -145,7 +145,7 @@ private:
         (void)sizeof(name_length);
         (void)sizeof(user_data);
 
-        auto userDataQueryRes = static_cast<QueryRes *>(user_data);
+        auto userDataQueryResult = static_cast<QueryResult *>(user_data);
 
         string fromAddrstr = ip_address_to_string(from);
         string entrytype = entrytype_to_string(entry);
@@ -156,7 +156,7 @@ private:
         if (rtype == MDNS_RECORDTYPE_PTR) {
             mdns_string_t namestr =
                 mdns_record_parse_ptr(data, size, record_offset, record_length, namebuffer, sizeof(namebuffer));
-            userDataQueryRes->service.append(entrystr.str, entrystr.length);
+            userDataQueryResult->service.append(entrystr.str, entrystr.length);
             logger_callback(string("PTR: ")
                                 .append(fromEntry)
                                 .append(" name=")
@@ -169,7 +169,7 @@ private:
         else if (rtype == MDNS_RECORDTYPE_SRV) {
             mdns_record_srv_t srv =
                 mdns_record_parse_srv(data, size, record_offset, record_length, namebuffer, sizeof(namebuffer));
-            userDataQueryRes->hostname.append(srv.name.str, srv.name.length);
+            userDataQueryResult->hostname.append(srv.name.str, srv.name.length);
             logger_callback(string("SRV: ")
                                 .append(fromEntry)
                                 .append(" name=")
@@ -185,13 +185,13 @@ private:
             sockaddr_in addr;
             mdns_record_parse_a(data, size, record_offset, record_length, &addr);
             auto addrstr = ipv4_address_to_string(&addr);
-            userDataQueryRes->ipv4 = addr;
+            userDataQueryResult->ipv4 = addr;
             logger_callback(string("A: ").append(fromEntry).append(" address:").append(addrstr));
         }
         else if (rtype == MDNS_RECORDTYPE_AAAA) {
             sockaddr_in6 addr;
             mdns_record_parse_aaaa(data, size, record_offset, record_length, &addr);
-            userDataQueryRes->ipv6 = addr;
+            userDataQueryResult->ipv6 = addr;
             logger_callback(
                 string("AAAA: ").append(fromEntry).append(" address:").append(ipv6_address_to_string(&addr)));
         }
@@ -208,8 +208,8 @@ private:
                                     .append(key)
                                     .append(" value=")
                                     .append(value));
-                if (itxt < userDataQueryRes->txt_records.size()) {
-                    userDataQueryRes->txt_records.at(itxt) = std::make_pair(key, value);
+                if (itxt < userDataQueryResult->txt_records.size()) {
+                    userDataQueryResult->txt_records.at(itxt) = std::make_pair(key, value);
                 }
             }
         }
@@ -663,7 +663,7 @@ private:
         }
 
         std::shared_ptr<void> buffer(malloc(s_bufferCapacity), free);
-        QueryRes userDataEntry;
+        QueryResult userDataEntry;
         void *user_data = &userDataEntry;
         size_t records;
 
@@ -706,9 +706,9 @@ private:
     }
 
     // Send a mDNS query
-    std::vector<QueryRes> send_mdns_query(std::vector<mdns_query_t> queries)
+    std::vector<QueryResult> send_mdns_query(std::vector<mdns_query_t> queries)
     {
-        std::vector<QueryRes> discoveredDevice;
+        std::vector<QueryResult> discoveredDevice;
 
         int sockets[s_maxSocketsNum];
         int query_id[s_maxSocketsNum];
@@ -761,12 +761,12 @@ private:
             if (res > 0) {
                 for (int isock = 0; isock < open_res.num_sockets; ++isock) {
                     if (FD_ISSET(sockets[isock], &readfs)) {
-                        QueryRes userDataQueryRes;
-                        void *user_data = &userDataQueryRes;
+                        QueryResult userDataQueryResult;
+                        void *user_data = &userDataQueryResult;
                         int rec = mdns_query_recv(sockets[isock], buffer.get(), s_bufferCapacity, m_mdns_query_callback,
                                                   user_data, query_id[isock]);
                         if (rec > 0) {
-                            discoveredDevice.emplace_back(std::move(userDataQueryRes));
+                            discoveredDevice.emplace_back(std::move(userDataQueryResult));
                         }
                     }
                     FD_SET(sockets[isock], &readfs);

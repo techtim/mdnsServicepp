@@ -4,11 +4,11 @@ cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 project(mdnsServicepp VERSION 0.0.1)
 
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_EXTENSIONS NO)
 set(CMAKE_C_STANDARD 11)
 
-option(MDNSSERVICE_BUILD_EXAMPLE "Build example" ON)
+option(MDNSSERVICE_BUILD_EXAMPLE "Build example" OFF)
 option(UNDEFINED_SANITIZER "Enable Clang UndefinedBehaviorSanitizer" OFF)
 option(ADDRESS_SANITIZER "Enable Clang AddressSanitizer" OFF)
 

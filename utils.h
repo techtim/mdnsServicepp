@@ -22,8 +22,9 @@ ipv4_address_to_string(const sockaddr_in *addr, bool addPort = true)
 static inline string
 ipv6_address_to_string(const sockaddr_in6 *addr, bool addPort = true)
 {
-    string ip(INET6_ADDRSTRLEN, ' ');
-    inet_ntop(AF_INET6, &(addr->sin6_addr), ip.data(), INET6_ADDRSTRLEN);
+    char buf[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6, &(addr->sin6_addr), buf, INET6_ADDRSTRLEN);
+    string ip{buf};
     if (addr->sin6_port != 0 && addPort)
         ip.append(":").append(std::to_string(addr->sin6_port));
     return ip;
