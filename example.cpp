@@ -6,7 +6,7 @@ main()
     mdns::MdnsService service;
     auto txts = mdns::TxtRecordArray{std::make_pair("mac", "13:13:13:13:13:13"),
                                      std::make_pair("enttec", "S-Play asdasdjsa;ldj alkdsjlsa djsalkdjsakld")};
-    service.start("_http._tcp.local.", "Hello");
+    service.start("_http._tcp.local.", "Hello", txts);
     service.discover();
     auto discovered = service.sendMdnsQuery("_http._tcp.local.");
     for (const auto &res : discovered) {

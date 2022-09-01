@@ -56,8 +56,8 @@ struct ServiceState {
 struct QueryResult {
     string hostname;
     string service;
-    sockaddr_in ipv4;
-    sockaddr_in6 ipv6;
+    sockaddr_in ipv4{};
+    sockaddr_in6 ipv6{};
     TxtRecordArray txt_records;
 };
 
@@ -69,7 +69,7 @@ struct open_sockets_res {
 
 class MdnsService {
 public:
-    MdnsService(std::function<void(const std::string &)> logCallback = nullptr)
+    explicit MdnsService(std::function<void(const std::string &)> logCallback = nullptr)
     {
         generateMdnsRecordCallbacks();
 
@@ -85,7 +85,7 @@ public:
     std::vector<QueryResult> sendMdnsQuery(const string &serviceName, mdns_record_type type = MDNS_RECORDTYPE_ANY)
     {
         mdns_query_t query{type, serviceName.c_str(), serviceName.length()};
-        return send_mdns_query(std::vector<mdns_query_t>{std::move(query)});
+        return send_mdns_query(std::vector<mdns_query_t>{query});
     }
 
     std::vector<QueryResult> sendMdnsQuery(std::vector<mdns_query_t> queries)
@@ -97,7 +97,7 @@ public:
                uint16_t port = MDNS_PORT)
     {
         m_isRunning = true;
-        m_serviceThread = std::thread([this, &txt_records, &hostname, &serviceName, port]() {
+        m_serviceThread = std::thread([this, txt_records, hostname, serviceName, port]() {
             this->service_mdns(hostname, serviceName, txt_records, port);
         });
     }
@@ -618,7 +618,7 @@ private:
         }
 
         if (num_sockets < max_sockets) {
-            struct sockaddr_in6 sock_addr;
+            sockaddr_in6 sock_addr;
             memset(&sock_addr, 0, sizeof(struct sockaddr_in6));
             sock_addr.sin6_family = AF_INET6;
             sock_addr.sin6_addr = in6addr_any;
@@ -662,7 +662,7 @@ private:
         int res;
         logger_callback("Reading DNS-SD replies");
         do {
-            struct timeval timeout;
+            timeval timeout;
             timeout.tv_sec = 5;
             timeout.tv_usec = 0;
 
@@ -755,8 +755,8 @@ private:
                     if (FD_ISSET(sockets[isock], &readfs)) {
                         QueryResult userDataQueryResult;
                         void *user_data = &userDataQueryResult;
-                        int rec = mdns_query_recv(sockets[isock], buffer.get(), s_bufferCapacity, m_mdns_query_callback,
-                                                  user_data, query_id[isock]);
+                        auto rec = mdns_query_recv(sockets[isock], buffer.get(), s_bufferCapacity,
+                                                   m_mdns_query_callback, user_data, query_id[isock]);
                         if (rec > 0) {
                             discoveredDevice.emplace_back(std::move(userDataQueryResult));
                         }
@@ -777,7 +777,7 @@ private:
     }
 
     // Provide a mDNS service, answering incoming DNS-SD and mDNS queries
-    int service_mdns(string hostname, string service_name, TxtRecordArray txt_records,
+    int service_mdns(const string &hostname, string service_name, TxtRecordArray txt_records,
                      uint16_t service_port = MDNS_PORT)
     {
         int sockets[s_maxSocketsNum];
@@ -905,7 +905,7 @@ private:
             std::vector<mdns_record_t> additional = generateAdditionalRecords(service);
 
             for (int isock = 0; isock < open_res.num_sockets; ++isock)
-                mdns_goodbye_multicast(sockets[isock], buffer.get(), s_bufferCapacity, service.record_ptr, 0, 0,
+                mdns_goodbye_multicast(sockets[isock], buffer.get(), s_bufferCapacity, service.record_ptr, nullptr, 0,
                                        additional.data(), additional.size());
         }
 
@@ -917,7 +917,7 @@ private:
         return 0;
     }
 
-    std::vector<mdns_record_t> generateAdditionalRecords(const ServiceState &service)
+    static std::vector<mdns_record_t> generateAdditionalRecords(const ServiceState &service)
     {
         std::vector<mdns_record_t> additional;
         additional.push_back(service.record_srv);
