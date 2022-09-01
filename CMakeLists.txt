@@ -32,6 +32,7 @@ endif ()
 if (MDNSSERVICE_BUILD_EXAMPLE)
     add_executable(${PROJECT_NAME}_example example.cpp)
     target_include_directories(${PROJECT_NAME}_example INTERFACE ${CMAKE_SOURCE_DIR})
+    target_compile_options(${PROJECT_NAME}_example PUBLIC -Wall -Wextra -pedantic)
     target_link_libraries(${PROJECT_NAME}_example PRIVATE Threads::Threads)
 endif ()
 

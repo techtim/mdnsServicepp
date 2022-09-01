@@ -1,4 +1,4 @@
-# Header only C++ wrapper for domain mDNS/DNS-SD library in C
+# Header only C++ mDNS/DNS-SD library
 
 This library provides a header only modern C++11 wrapper for cross-platform mDNS and DNS-DS C library:
 https://github.com/mjansson/mdns
@@ -21,5 +21,8 @@ make
 ```
 
 ## Usage 
-Include mdnsServise.h
-Class MdnsServise implements mdns.c logic.
+- in Cmake file add:
+`target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/include/mdnsServicepp)`
+- or just #include "mdnsServise.h"
+
+Class MdnsServise implements mdns.c logic with minimal changes so user can rely on https://github.com/mjansson/mdns documentation

@@ -93,14 +93,13 @@ public:
         return send_mdns_query(std::move(queries));
     }
 
-    void start(const string &serviceName, const string &hostname,
-               std::array<std::pair<string, string>, s_txtRecordsNum> txt_records = {})
+    void start(const string &serviceName, const string &hostname, TxtRecordArray txt_records = {},
+               uint16_t port = MDNS_PORT)
     {
-        m_serviceName = serviceName;
-        m_hostname = hostname;
         m_isRunning = true;
-        m_serviceThread =
-            std::thread([this, txt_records]() { this->service_mdns(m_hostname, m_serviceName, txt_records); });
+        m_serviceThread = std::thread([this, &txt_records, &hostname, &serviceName, port]() {
+            this->service_mdns(hostname, serviceName, txt_records, port);
+        });
     }
 
     void stop()
@@ -130,7 +129,6 @@ private:
         std::cout << str << std::endl;
     };
 
-    string m_serviceName, m_hostname;
     std::thread m_serviceThread;
     std::atomic<bool> m_isRunning;
     mdns_record_callback_fn m_mdns_query_callback, m_mdns_service_callback;
@@ -141,6 +139,7 @@ private:
                        size_t name_length, size_t record_offset, size_t record_length, void *user_data)
     {
         (void)sizeof(sock);
+        (void)sizeof(addrlen);
         (void)sizeof(query_id);
         (void)sizeof(name_length);
         (void)sizeof(user_data);
@@ -232,6 +231,10 @@ private:
                          size_t record_length, void *user_data)
     {
         (void)sizeof(ttl);
+        (void)sizeof(name_length);
+        (void)sizeof(record_offset);
+        (void)sizeof(record_length);
+
         if (entry != MDNS_ENTRYTYPE_QUESTION)
             return 0;
 
@@ -259,7 +262,7 @@ private:
                 // The PTR query was for the DNS-SD domain, send answer with a PTR record for the
                 // service name we advertise, typically on the "<_service-name>._tcp.local." format
 
-                mdns_record_t answer = {name, MDNS_RECORDTYPE_PTR, mdns_record_ptr_t{service->service}};
+                mdns_record_t answer = {name, MDNS_RECORDTYPE_PTR, {mdns_record_ptr_t{service->service}}, 0, 0};
 
                 logger_callback(string("  --> answer for DNS-SD: ")
                                     .append(answer.data.ptr.name.str, answer.data.ptr.name.length)
@@ -314,19 +317,7 @@ private:
                 // well as any IPv4/IPv6 address for the hostname as A/AAAA records, and two test TXT
                 // records
 
-                mdns_record_t additional[5] = {0};
-                size_t additional_count = 0;
-
-                // A/AAAA records mapping "<hostname>.local." to IPv4/IPv6 addresses
-                if (service->address_ipv4.sin_family == AF_INET)
-                    additional[additional_count++] = service->record_a;
-                if (service->address_ipv6.sin6_family == AF_INET6)
-                    additional[additional_count++] = service->record_aaaa;
-
-                // Add two test TXT records for our service instance name, will be coalesced into
-                // one record with both key-value pair strings by the library
-                additional[additional_count++] = service->txt_record[0];
-                additional[additional_count++] = service->txt_record[1];
+                auto additional = generateAdditionalRecords(*service);
 
                 logger_callback(string("  --> answer for record SRV: ")
                                     .append(service->record_srv.name.str, service->record_srv.name.length)
@@ -338,11 +329,11 @@ private:
                 if (unicast) {
                     mdns_query_answer_unicast(sock, from, addrlen, sendbuffer, sizeof(sendbuffer), query_id,
                                               record_type, name.str, name.length, service->record_srv, nullptr, 0,
-                                              additional, additional_count);
+                                              additional.data(), additional.size());
                 }
                 else {
                     mdns_query_answer_multicast(sock, sendbuffer, sizeof(sendbuffer), service->record_srv, nullptr, 0,
-                                                additional, additional_count);
+                                                additional.data(), additional.size());
                 }
             }
         }
@@ -406,7 +397,7 @@ private:
     {
         // When sending, each socket can only send to one network interface
         // Thus we need to open one socket for each interface and address family
-        open_sockets_res res{0, 0, 0};
+        open_sockets_res res{0, {}, {}};
 
 #ifdef _WIN32
 
@@ -691,11 +682,12 @@ private:
                     if (FD_ISSET(sockets[isock], &readfs)) {
                         records += mdns_discovery_recv(sockets[isock], buffer.get(), s_bufferCapacity,
                                                        m_mdns_query_callback, user_data);
-                        logger_callback(string("Discovery recv from socket: ").append(to_string(sockets[isock])));
                     }
                 }
             }
         } while (res > 0);
+
+        logger_callback(string("DNS-SD discovered: ").append(to_string(records)));
 
         for (int isock = 0; isock < open_res.num_sockets; ++isock)
             mdns_socket_close(sockets[isock]);
@@ -785,8 +777,8 @@ private:
     }
 
     // Provide a mDNS service, answering incoming DNS-SD and mDNS queries
-    int service_mdns(string hostname, string service_name,
-                     std::array<std::pair<string, string>, s_txtRecordsNum> txt_records, uint16_t service_port = 5353)
+    int service_mdns(string hostname, string service_name, TxtRecordArray txt_records,
+                     uint16_t service_port = MDNS_PORT)
     {
         int sockets[s_maxSocketsNum];
         auto open_res = open_service_sockets(sockets, s_maxSocketsNum);
@@ -817,10 +809,10 @@ private:
         auto hostname_qualified = string(hostname).append(".local.");
 
         ServiceState service;
-        service.service = (mdns_string_t){service_name.c_str(), service_name.length()};
-        service.hostname = (mdns_string_t){hostname.c_str(), hostname.length()};
-        service.service_instance = (mdns_string_t){service_instance.c_str(), service_instance.length()};
-        service.hostname_qualified = (mdns_string_t){hostname_qualified.c_str(), hostname_qualified.length()};
+        service.service = {service_name.c_str(), service_name.length()};
+        service.hostname = {hostname.c_str(), hostname.length()};
+        service.service_instance = {service_instance.c_str(), service_instance.length()};
+        service.hostname_qualified = {hostname_qualified.c_str(), hostname_qualified.length()};
         service.address_ipv4 = open_res.service_address_ipv4;
         service.address_ipv6 = open_res.service_address_ipv6;
         service.port = service_port;
@@ -829,14 +821,14 @@ private:
 
         // PTR record reverse mapping "<_service-name>._tcp.local." to
         // "<hostname>.<_service-name>._tcp.local."
-        service.record_ptr =
-            (mdns_record_t){service.service, MDNS_RECORDTYPE_PTR, mdns_record_ptr_t{service.service_instance}, 0, 0};
+        service.record_ptr = {
+            service.service, MDNS_RECORDTYPE_PTR, {mdns_record_ptr_t{service.service_instance}}, 0, 0};
 
         // SRV record mapping "<hostname>.<_service-name>._tcp.local." to
         // "<hostname>.local." with port. Set weight & priority to 0.
         service.record_srv.name = service.service_instance;
         service.record_srv.type = MDNS_RECORDTYPE_SRV;
-        service.record_srv.data.srv = (mdns_record_srv_t){0, 0, service.port, service.hostname_qualified};
+        service.record_srv.data.srv = {0, 0, service.port, service.hostname_qualified};
         service.record_srv.rclass = 0;
         service.record_srv.ttl = 0;
 
