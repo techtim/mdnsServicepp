@@ -19,6 +19,8 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <array>
+#include <unordered_map>
 
 #include "utils.h"
 #include "include/mdns/mdns.h"
@@ -29,6 +31,8 @@ using std::string;
 using std::to_string;
 
 static constexpr size_t s_txtRecordsNum = 2;
+using TxtRecordArray = std::array<std::pair<string, string>, s_txtRecordsNum>;
+
 static constexpr size_t s_maxSocketsNum = 32;
 static const string s_dnsSd = "_services._dns-sd._udp.local.";
 static const mdns_string_t s_dns_sd{s_dnsSd.c_str(), s_dnsSd.length()};
@@ -88,7 +92,7 @@ public:
     }
 
     void start(const string &serviceName, const string &hostname,
-               std::array<std::pair<string, string>, s_txtRecordsNum> txt_records = {})
+               std::array<std::pair<string, string>, s_txtRecordsNum> txt_records)
     {
         m_serviceName = serviceName;
         m_hostname = hostname;
@@ -780,7 +784,7 @@ private:
 
     // Provide a mDNS service, answering incoming DNS-SD and mDNS queries
     int service_mdns(string hostname, string service_name,
-                     std::array<std::pair<string, string>, s_txtRecordsNum> txt_records = {},
+                     std::array<std::pair<string, string>, s_txtRecordsNum> txt_records,
                      uint16_t service_port = 5353)
     {
         int sockets[s_maxSocketsNum];
@@ -953,7 +957,7 @@ private:
     {
         using namespace std::placeholders;
 
-#ifdef __APPLE__
+#if defined(__APPLE__)
         constexpr __ph<11> _11;
         constexpr __ph<12> _12;
         constexpr __ph<13> _13;
