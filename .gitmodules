@@ -1,3 +1,3 @@
 [submodule "include/mdns"]
 	path = include/mdns
-	url = git@github.com:mjansson/mdns.git
+	url = https://github.com/mjansson/mdns.git
