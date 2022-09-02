@@ -58,6 +58,18 @@ struct QueryResult {
     TxtRecordArray txt_records;
 };
 
+inline std::ostream &
+operator<<(std::ostream &os, const QueryResult &res)
+{
+    os << "QueryResult hostname=" << res.hostname << " service=" << res.service
+       << " ipv4=" << ipv4_address_to_string(&res.ipv4, false) << " ipv6=" << ipv6_address_to_string(&res.ipv6)
+       << " txt records: [ ";
+    for (const auto &txt : res.txt_records)
+        os << "'" << txt.first << "'='" << txt.second << "' ";
+    os << "]";
+    return os;
+}
+
 struct open_sockets_res {
     int num_sockets;
     sockaddr_in service_address_ipv4;
@@ -116,7 +128,8 @@ public:
 
 private:
     char entrybuffer[256];
-    char namebuffer[256];
+    char namebufferQuery[256];
+    char namebufferService[256];
     char sendbuffer[256];
     mdns_record_txt_t txtbuffer[128];
 
@@ -150,8 +163,8 @@ private:
             fromAddrstr.append(" type=").append(entrytype).append(" entry=").append(entrystr.str, entrystr.length);
 
         if (rtype == MDNS_RECORDTYPE_PTR) {
-            mdns_string_t namestr =
-                mdns_record_parse_ptr(data, size, record_offset, record_length, namebuffer, sizeof(namebuffer));
+            mdns_string_t namestr = mdns_record_parse_ptr(data, size, record_offset, record_length, namebufferQuery,
+                                                          sizeof(namebufferQuery));
             userDataQueryResult->service.append(entrystr.str, entrystr.length);
             logger_callback(string("PTR: ")
                                 .append(fromEntry)
@@ -163,8 +176,8 @@ private:
                                 .append(to_string(ttl)));
         }
         else if (rtype == MDNS_RECORDTYPE_SRV) {
-            mdns_record_srv_t srv =
-                mdns_record_parse_srv(data, size, record_offset, record_length, namebuffer, sizeof(namebuffer));
+            mdns_record_srv_t srv = mdns_record_parse_srv(data, size, record_offset, record_length, namebufferQuery,
+                                                          sizeof(namebufferQuery));
             userDataQueryResult->hostname.append(srv.name.str, srv.name.length);
             logger_callback(string("SRV: ")
                                 .append(fromEntry)
@@ -240,14 +253,11 @@ private:
         auto fromaddrstr = ip_address_to_string(from);
 
         size_t offset = name_offset;
-        mdns_string_t name = mdns_string_extract(data, size, &offset, namebuffer, sizeof(namebuffer));
+        mdns_string_t name = mdns_string_extract(data, size, &offset, namebufferService, sizeof(namebufferService));
 
         auto record_type = static_cast<mdns_record_type>(rtype);
         auto record_type_name = recordtype_to_string(record_type);
-        logger_callback(string("service_callback Query type=")
-                            .append(record_type_name)
-                            .append(" name=")
-                            .append(name.str, name.length));
+        logger_callback(string("Query type=").append(record_type_name).append(" name=").append(name.str, name.length));
 
         if (record_type_name.empty())
             return 0;
