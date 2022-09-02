@@ -12,7 +12,6 @@
 
 #endif
 
-#include <functional>
 #include <iostream>
 #include <memory>
 #include <atomic>
@@ -20,14 +19,12 @@
 #include <mutex>
 #include <vector>
 #include <array>
-#include <unordered_map>
 
 #include "utils.h"
 #include "include/mdns/mdns.h"
 
 namespace mdns {
 
-using std::string;
 using std::to_string;
 
 static constexpr size_t s_txtRecordsNum = 2;
@@ -597,7 +594,7 @@ private:
 
         // Call the client socket function to enumerate and get local addresses,
         // but not open the actual sockets
-        auto res = open_client_sockets(0, 0, 0);
+        auto res = open_client_sockets(nullptr, 0, 0);
 
         if (num_sockets < max_sockets) {
             sockaddr_in sock_addr;
@@ -936,7 +933,7 @@ private:
     {
         using namespace std::placeholders;
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(_LIBCPP_FUNCTIONAL)
         constexpr __ph<11> _11;
         constexpr __ph<12> _12;
         constexpr __ph<13> _13;
