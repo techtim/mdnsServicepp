@@ -105,6 +105,7 @@ public:
     void start(const string &serviceName, const string &hostname, TxtRecordArray txt_records = {},
                uint16_t port = MDNS_PORT)
     {
+        stop();
         m_isRunning = true;
         m_serviceThread = std::thread([this, txt_records, hostname, serviceName, port]() {
             this->service_mdns(hostname, serviceName, txt_records, port);
