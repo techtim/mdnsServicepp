@@ -5,6 +5,8 @@ https://github.com/mjansson/mdns
 
 Inspired by https://github.com/gocarlos/mdns_cpp, just provides cleaner interface for sending mDNS Queries in more C++ fashion.
 
+**Tested: Linux, MacOS**
+
 ## Features
 The library does DNS-SD `discover()` service in separate thread. 
 As well as customized `sendMdnsQuery` with response returned as vector<QueryResult>
